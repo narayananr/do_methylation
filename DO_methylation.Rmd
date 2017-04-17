@@ -1,0 +1,146 @@
+---
+title: "Empirical Bayes Analysis of DO Methylation Data"
+author: "Narayanan Raghupathy"
+date: "April 1, 2017"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr) 
+library(tidyr) 
+library(Lahman)
+library(ggplot2)
+library(VGAM)
+library(MASS)
+library(ggrepel)
+theme_set(theme_bw())
+```
+
+## DO Methylation
+
+This is the first pass analysis of methylation from 191 DO samples. To start with, I am just considering filered methylation data Anuj gave for chromosome 1. Let us first load the data sets for chr 1.
+
+```{r load_data}
+methyl_sites = read.table("methyl_chr1_sites.txt")
+colnames(methyl_sites)=c("Chr","Start","End")
+#head(methyl_sites)
+methyl_counts=read.table("methyl_chr1_methylated.txt")
+dim(methyl_counts)
+methyl_counts[1:5,1:6]
+total_counts=read.table("methyl_chr1_total.txt")
+dim(total_counts)
+```
+
+The data is a big matrix with  `r nrow(total_counts)` methylation sites in `r ncol(total_counts)` DO animals. Let us find the mean methylation ratio for each methylation site across all samples.
+
+```{r mean_methyl}
+
+mean_methyl=apply(methyl_counts,1,mean)
+total= apply(total_counts,1,mean)
+mean_methyl_df = data.frame(mean_methyl=mean_methyl,
+                            total=total,
+                            ave=mean_methyl/total)
+#head(mean_methyl_df)
+mean_methyl_df %>% ggplot(aes(ave))+geom_histogram(bins=100)
+mean_methyl_df %>% ggplot(aes(mean_methyl))+geom_histogram(bins=100)+xlim(c(0,75))+ggtitle("Mean Methylation")
+mean_methyl_df %>% ggplot(aes(total))+geom_histogram(bins=100)+xlim(c(0,75))+ggtitle("Mean total read counts")
+
+methyl_prop <- methyl_counts/total_counts
+print(dim(methyl_prop))
+num_ones <- apply(methyl_prop,1,function(x){sum(x>=0.9)})
+num_nas <- apply(methyl_prop,1,function(x){sum(is.na(x))})
+hist(num_ones, breaks=100,col="grey")
+hist(num_nas, breaks=100,col="grey")
+total_methyl=apply(methyl_counts,1,sum)
+total2= apply(total_counts,1,sum)
+mean_methyl_df2 = data.frame(methyl=total_methyl,
+                            total=total2,
+                            ave=mean_methyl/total)
+#head(mean_methyl_df2)
+#mean_methyl_df2 %>% ggplot(aes(methyl))+geom_histogram(bins=100)+xlim(c(0,5000))
+#mean_methyl_df2 %>% ggplot(aes(total))+geom_histogram(bins=100)+xlim(c(0,10000))
+
+```
+
+We are interested in estimating the proportion of methylation at each methylation site. For each site, we have 191 DO animals. We can use Beta-Binomial model to estimate the proprtion of methylation accounting for both technical and biological variations. We will take Empirical Bayes approach to the hiearchical model $$M \sim binom(N,p)$$, where p is Beta distributed with parameters $\alpha$ and $\beta$, $$p \sim Beta(\alpha,\beta)$$.
+
+Let us fit Beta-binomial model for each methylation site using two approaches. 
+
+* Method of moment estimates
+* MLE estimates
+
+We will look at handfull of methylation sites from chromosome 1 and first fit data from each methylation site from all samples with Methods of Moments estimates and MLE estimates
+
+<!-- # ll <- function(alpha, beta) { -->
+<!-- #     x <- mean_methyl_df2$methyl -->
+<!-- #     total <- mean_methyl_df2$total -->
+<!-- #     -sum(VGAM::dbetabinom.ab(x, total, alpha, beta, -->
+<!-- #                              log = TRUE)) -->
+<!-- # } -->
+<!-- # m <- mle(ll, start = list(alpha = 2, beta = 3), method = "L-BFGS-B", lower = c(0.001, .4)) -->
+<!-- # ab <- coef(m) -->
+<!-- # str(m) -->
+<!-- # alpha0 <- ab[1] -->
+<!-- # beta0 <- ab[2] -->
+<!-- # print(alpha0) -->
+<!-- # print(beta0) -->
+<!-- # curve(dbeta(x, alpha0, beta0)) -->
+<!-- # hist(rbeta(5000, alpha0, beta0),breaks=100, col="grey") -->
+<!-- # hist(rbeta(5000, 2,1),breaks=100, col="grey") -->
+
+
+```{r likelihood_fn}
+
+db_ll <- function(alpha, beta) {
+      -sum(VGAM::dbetabinom.ab(x, total, alpha, beta,
+                             log = TRUE))
+  }
+```
+
+
+```{r beta_binomial_fit}
+for (i in 1:5){
+  total = as.numeric(total_counts[i,])
+  x= as.numeric(methyl_counts[i,])
+  ### Method of moments estimates
+  mu <- mean(x/total,na.rm=TRUE)
+  sigma2 <- var(x/total,na.rm=TRUE)
+  alpha_mm <- ((1 - mu)/sigma2 - 1/mu) * mu^2
+  beta_mm <- alpha_mm * (1/mu - 1)
+  print(alpha_mm)
+  print(beta_mm)
+  ll <- function(alpha, beta) {
+    -sum(VGAM::dbetabinom.ab(x, total, alpha, beta, log = TRUE))
+  }
+  m <- mle(ll, start = list(alpha = 1, beta = 10), method = "L-BFGS-B", lower = c(0.0001, .1))
+  ab     <- coef(m)
+  alpha0 <- ab[1]
+  beta0  <- ab[2]
+  df <- data.frame(methylated=x,total=total,prop=x/total)
+  ggplot(df,aes(x=prop))+geom_histogram()
+  ### estimate beta parameters
+  #m <- MASS::fitdistr(df$prop[-na_ind], dbeta, start = list(shape1 = 1, shape2 = 2))
+  #alpha_m <- m$estimate[1]
+  #beta_m <- m$estimate[2]
+  t_text= paste0("MoM: alpha =",signif(alpha_mm,3),", beta = ",signif(beta_mm,3),
+                 " MLE: alpha =",signif(alpha0,3),", beta = ",signif(beta0,3))
+  p <- ggplot(df,aes(x=prop)) + geom_histogram(aes(y = ..density..), fill ="blue") 
+  p <- p + stat_function(fun = function(x) dbeta(x, alpha_mm, beta_mm),  color = "red", size = 1) 
+  p <- p + stat_function(fun = function(x) dbeta(x, alpha0, beta0),  color = "green", size = 1) 
+  #p <- p + stat_function(fun = function(x) dbeta(x, alpha_m, beta_m),  color = "pink", size = 1) 
+  p <- p + labs(x = "methylation rate") + ggtitle(t_text)
+  print(p)
+  df_eb <- df %>% mutate(eb_estimate = (methylated+alpha_mm)/(total+alpha_mm+beta_mm))
+  print(head(df_eb))
+  p <- ggplot(df_eb,aes(x=prop,y=eb_estimate))+geom_point(size=3,alpha=0.5)
+  #p<-p+ geom_text_repel(aes(prop,eb_estimate,label = total), color = "black")
+  print(p)
+}
+```
+
+
+
+
