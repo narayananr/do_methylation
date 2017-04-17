@@ -65,7 +65,7 @@ mean_methyl_df2 = data.frame(methyl=total_methyl,
 
 ```
 
-We are interested in estimating the proportion of methylation at each methylation site. For each site, we have 191 DO animals. We can use Beta-Binomial model to estimate the proprtion of methylation accounting for both technical and biological variations. We will take Empirical Bayes approach to the hiearchical model $$M \sim binom(N,p)$$, where p is Beta distributed with parameters $\alpha$ and $\beta$, $$p \sim Beta(\alpha,\beta)$$.
+We are interested in estimating the proportion of methylation at each methylation site. For each site, we have 191 DO animals and their methylation and total read counts. We can use Beta-Binomial model to estimate the proprtion of methylation accounting for both technical and biological variations. We will take Empirical Bayes approach to the hiearchical model $$M \sim binom(N,p)$$, where p is Beta distributed with parameters $\alpha$ and $\beta$, $$p \sim Beta(\alpha,\beta)$$.
 
 Let us fit Beta-binomial model for each methylation site using two approaches. 
 
